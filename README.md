@@ -1,2 +1,2 @@
 # Data-Analysis
-Data analysis, ML and stats homeworks
+Тут собраны домашние задания по курсам, связанным с работой с данными с использованием питона
