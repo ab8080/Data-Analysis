@@ -11,43 +11,38 @@ class ThreeInputsNet(nn.Module):
     def __init__(self, n_tokens, n_cat_features, concat_number_of_features, hid_size=64):
         super(ThreeInputsNet, self).__init__()
         self.title_emb = nn.Embedding(n_tokens, embedding_dim=hid_size)
-        self.title_conv = nn.Conv1d(hid_size, hid_size, kernel_size=3, padding=1)
+        self.title_lstm = nn.LSTM(input_size=hid_size, hidden_size=hid_size, batch_first=True)
 
         self.full_emb = nn.Embedding(num_embeddings=n_tokens, embedding_dim=hid_size)
-        self.full_conv = nn.Conv1d(hid_size, hid_size, kernel_size=3, padding=1)
+        self.full_lstm = nn.LSTM(input_size=hid_size, hidden_size=hid_size, batch_first=True)
 
-        self.category_out = nn.Linear(n_cat_features, hid_size)
+        self.category_encoder = nn.Sequential(
+            nn.Linear(n_cat_features, hid_size),
+            nn.BatchNorm1d(hid_size),
+            nn.ReLU(),
+            nn.Linear(hid_size, hid_size),
+        )
 
-        # Example for the final layers (after the concatenation)
-        self.inter_dense = nn.Linear(in_features=concat_number_of_features, out_features=hid_size*2)
-        self.final_dense = nn.Linear(in_features=hid_size*2, out_features=1)
-
+        self.final_layers = nn.Sequential(
+            nn.Linear(in_features=concat_number_of_features, out_features=hid_size*2),
+            nn.ReLU(),
+            nn.Linear(in_features=hid_size*2, out_features=1)
+        )
+        
     def forward(self, whole_input):
         input1, input2, input3 = whole_input
-        title_beg = self.title_emb(input1).permute((0, 2, 1))
-        title = self.title_conv(title_beg)
-        title = F.relu(title)
-        title = F.max_pool1d(title, kernel_size=title.size(2)).squeeze(2)
+        title_beg = self.title_emb(input1)
+        _, (title, _) = self.title_lstm(title_beg)
+        title = title[-1]
 
-        full_beg = self.full_emb(input2).permute((0, 2, 1))
-        full = self.full_conv(full_beg)
-        full = F.relu(full)
-        full = F.max_pool1d(full, kernel_size=full.size(2)).squeeze(2)
-
-        category = self.category_out(input3)
-        category = F.relu(category)
-
-        concatenated = torch.cat(
-            [
-            title.view(title.size(0), -1),
-            full.view(full.size(0), -1),
-            category.view(category.size(0), -1)
-            ],
-            dim=1)
-
-        out = self.inter_dense(concatenated)
-        out = F.relu(out)
-        out = self.final_dense(out)
+        full_beg = self.full_emb(input2)
+        _, (full, _) = self.full_lstm(full_beg)
+        full = full[-1]
+        
+        category = self.category_encoder(input3)
+        
+        concatenated = torch.cat([title, full, category], dim=1)
+        out = self.final_layers(concatenated)
         
         return out
 
